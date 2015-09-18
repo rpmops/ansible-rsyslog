@@ -1,13 +1,20 @@
 ---
 
 - name: Make sure rsyslog is installed
-  apt:
+  yum:
     name: '{{ item }}'
     state: 'latest'
-    install_recommends: False
   with_items: rsyslog_packages
   when: rsyslog_packages is defined and rsyslog_packages
   notify: [ 'Restart rsyslogd' ]
+
+- name: Install bash_history_log scripts
+  copy:
+    src: 'etc/'
+    dest: '/etc/'
+    owner: 'root'
+    group: 'root'
+    mode: '0644'
 
 - include: pools.yml
   when: rsyslog_manage_pools is defined and rsyslog_manage_pools == True

@@ -7,22 +7,40 @@ rsyslog_packages: [ 'rsyslog', 'logrotate' ]
 rsyslog_manage_pools: True
 
 # List of managed pools
-rsyslog_pools: [ '{{ rsyslog_pool_cron }}' ]
+rsyslog_pools: [ '{{ rsyslog_pool_cron }}', '{{ rsyslog_pool_bash }}' ]
 
 # Default rsyslog pool , explanation of variables can be found
 # in templates/etc/rsyslog.d/pool.conf.j2
 # Everything commented out is optional.
 rsyslog_pool_cron:
   enabled: True
-  name: '49-cron'
+  name: '00-cron'
   options: |
     cron.*		/var/log/cron.log
-    & stop
+    & ~
 
     :msg, contains, "pam_unix(cron:session): session opened for user" /var/log/cron.log
-    & stop
+    & ~
 
     :msg, contains, "pam_unix(cron:session): session closed for user" /var/log/cron.log
-    & stop
+    & ~
 
+rsyslog_pool_bash:
+  enabled: True
+  name: '50-bash'
+  options: |
+    # Enable high precision timestamps
+    $ActionFileDefaultTemplate RSYSLOG_FileFormat
+
+    # Filter duplicated messages
+    $RepeatedMsgReduction off
+
+    # Log bash audit generated log messages to file
+    if $syslogfacility-text == 'user' and $syslogseverity-text == 'info' and $syslogtag startswith 'bash' then /var/log/bash-history
+
+    # Then drop them
+    & ~
+
+    # Restore default timestamp format
+    $ActionFileDefaultTemplate RSYSLOG_TraditionalFileFormat
 

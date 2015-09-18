@@ -1,0 +1,82 @@
+#This file must be sourced by '/etc/bashrc'
+ 
+#avoid sourcing this file more than once
+if [ "$AUDIT_INCLUDED" == "$$" ]; then
+    return
+else
+    declare -rx AUDIT_INCLUDED="$$"
+fi
+ 
+#'history' options
+declare -rx HISTSIZE=500000
+declare -rx HISTFILESIZE=500000
+declare -rx HISTCONTROL=""
+declare -rx HISTIGNORE=""
+declare -rx HISTCMD
+history -r
+ 
+#history substitution ask for a confirmation
+shopt -s histverify
+ 
+#enable forward search ('ctrl-s' or 'ctrl-r')
+if shopt -q login_shell; then
+    stty -ixon
+fi
+ 
+#bash audit & traceability
+if [ "$USER" == "root" ]; then
+    declare -rx AUDIT_PS1="#"
+else
+    declare -rx AUDIT_PS1="$"
+fi
+
+AUDIT_LOGINID=$$
+AUDIT_LOGINID2=$AUDIT_LOGINID
+while AUDIT_LOGINID2="$(awk '/PPid:/ {print $2}' /proc/$AUDIT_LOGINID2/status)" && [ "$AUDIT_LOGINID2" != "1" ]
+do
+  if [ "$(awk '/Name:/ {print $2}' /proc/$AUDIT_LOGINID2/status)" == "bash" ]
+  then
+    AUDIT_LOGINID="$AUDIT_LOGINID2"
+  fi
+done
+AUDIT_LOGINUSER=$(awk "/^Uid:/ {print \$2}" /proc/$AUDIT_LOGINID/status)
+AUDIT_LOGINUSER=$(awk -F":" "\$3 ~ /$AUDIT_LOGINUSER/ {print \$1}" /etc/passwd)
+
+#declare -rx AUDIT_LOGINUSER="$(who -mu | awk '{print $1}')"
+#declare -rx AUDIT_LOGINPID="$(who -mu | awk '{print $6}')"
+declare -rx AUDIT_USER="$USER"
+declare -rx AUDIT_PID="$$"
+declare -rx AUDIT_TTY="$(who -mu | awk '{print $2}')"
+declare -rx AUDIT_SSH="$([ -n "$SSH_CONNECTION" ] && echo "$SSH_CONNECTION" | awk '{print $1":"$2"->"$3":"$4}')"
+declare -rx AUDIT_STR="bash: $AUDIT_LOGINUSER/$AUDIT_LOGINID AS $AUDIT_USER/$AUDIT_PID ON $AUDIT_TTY/$AUDIT_SSH"
+declare -x AUDIT_HISTLINE="0"
+
+set +o functrace
+shopt -s extglob
+
+function AUDIT_DEBUG() {
+    local AUDIT_LASTHISTLINE="${AUDIT_HISTLINE}"
+    local AUDIT_CMD="$(history 1)"
+    AUDIT_HISTLINE="${AUDIT_CMD%%+([^ 0-9])*}"
+    if [ "${AUDIT_HISTLINE}" != "${AUDIT_LASTHISTLINE}" ]; then
+        logger -p user.info -t "$AUDIT_STR" "$PWD$AUDIT_PS1 ${AUDIT_CMD##*( )?(+([0-9])[^0-9])*( )}"
+    fi
+}
+
+#audit the session closing
+function AUDIT_EXIT() {
+    local AUDIT_STATUS="$?"
+    logger -p user.info -t "$AUDIT_STR" "=== bash session ended ==="
+    exit "$AUDIT_STATUS"
+}
+
+declare -frx +t AUDIT_DEBUG
+declare -frx +t AUDIT_EXIT
+
+#audit the session opening
+logger -p user.info -t "$AUDIT_STR" "=== start bash session ==="
+
+declare -rx PROMPT_COMMAND="trap 'AUDIT_DEBUG; trap DEBUG' DEBUG"
+declare -rx BASH_COMMAND
+declare -rx SHELLOPT
+trap AUDIT_EXIT EXIT
